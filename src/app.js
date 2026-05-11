@@ -639,3 +639,34 @@ function escapeHtml(value) {
 function escapeAttr(value) {
   return escapeHtml(value).replaceAll('`', '&#096;');
 }
+
+// Inactive users should not be displayed in assignee option and signed in user dropdown, but their existing tasks should remain visible in the hub and dashboards until reassigned or closed. This function migrates any existing seed data to ensure the admin user is present and active, and adds a default inactive user if not already present for testing purposes
+function migrateSeedData() {
+  const adminIndex = appState.users.findIndex((user) => user.id === ADMIN_USER_ID || user.email === 'admin@example.com');
+  if (adminIndex >= 0) {
+    appState.users[adminIndex] = {
+      ...appState.users[adminIndex],
+      id: ADMIN_USER_ID,
+      name: ADMIN_NAME,
+      email: 'admin@example.com',
+      isActive: true
+    };
+  } else {
+    appState.users.push({
+      id: ADMIN_USER_ID,
+      name: ADMIN_NAME,
+      email: 'admin@example.com',
+      isActive: true
+    });
+  }
+
+  const defaultInactiveUser = appState.users.find((user) => user.id === DEFAULT_INACTIVE_USER_ID);
+  if (!defaultInactiveUser) {
+    appState.users.push({
+      id: DEFAULT_INACTIVE_USER_ID,
+      name: DEFAULT_INACTIVE_USER_NAME,
+      email: 'inactive@example.com',
+      isActive: false
+    });
+  }
+}
