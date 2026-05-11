@@ -112,7 +112,7 @@ function render() {
       <header class="hero">
         <div>
           <p class="eyebrow">Team productivity workspace</p>
-          <h1>TaskFlow Hub</h1>
+          <h1>Tasks Management Hub</h1>
           <p class="hero-copy">Manage users, plan upcoming work, assign ownership, and keep every task status synchronized.</p>
         </div>
         <label class="current-user-card">
