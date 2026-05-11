@@ -5,6 +5,8 @@ const STORAGE_KEYS = {
 
 const taskStatuses = ['Upcoming', 'In Progress', 'Closed'];
 const priorities = ['Low', 'Medium', 'High'];
+const ADMIN_USER_ID = 'u-1';
+const ADMIN_NAME = 'Vigneshkumar Rajendran';
 
 const appState = {
   users: readStorage(STORAGE_KEYS.users, getDefaultUsers()),
@@ -16,11 +18,13 @@ const appState = {
   userDraft: createEmptyUser(),
   taskDraft: createEmptyTask(),
   confirmation: null,
+  filters: { userId: 'all', status: 'all', overdue: 'all' },
   toastTimer: null,
 };
 
-appState.currentUserId = appState.users.find((user) => user.active)?.id ?? appState.users[0]?.id ?? '';
-appState.taskDraft.assigneeId = appState.users[0]?.id ?? '';
+migrateSeedData();
+appState.currentUserId = appState.users.find((user) => user.id === ADMIN_USER_ID)?.id ?? appState.users.find((user) => user.active)?.id ?? appState.users[0]?.id ?? '';
+appState.taskDraft.assigneeId = '';
 
 const root = document.querySelector('#root');
 render();
@@ -52,9 +56,10 @@ function persist() {
 
 function getDefaultUsers() {
   return [
-    { id: 'u-1', name: 'Vignesh Kumar', email: 'vignesh@example.com', role: 'Project Lead', active: true },
+    { id: ADMIN_USER_ID, name: ADMIN_NAME, email: 'vigneshkumar.rajendran@example.com', role: 'Project Manager & Admin', active: true },
     { id: 'u-2', name: 'Ananya Rao', email: 'ananya@example.com', role: 'Designer', active: true },
     { id: 'u-3', name: 'Rahul Sharma', email: 'rahul@example.com', role: 'Developer', active: true },
+    { id: 'u-4', name: 'Meera Nair', email: 'meera@example.com', role: 'QA Analyst', active: true },
   ];
 }
 
@@ -104,34 +109,83 @@ function createEmptyTask() {
   };
 }
 
+
+function migrateSeedData() {
+  const adminIndex = appState.users.findIndex((user) => user.id === ADMIN_USER_ID || user.email === 'vignesh@example.com');
+  if (adminIndex >= 0) {
+    appState.users[adminIndex] = {
+      ...appState.users[adminIndex],
+      id: ADMIN_USER_ID,
+      name: ADMIN_NAME,
+      email: 'vigneshkumar.rajendran@example.com',
+      role: 'Project Manager & Admin',
+      active: true,
+    };
+  } else {
+    appState.users.unshift({ id: ADMIN_USER_ID, name: ADMIN_NAME, email: 'vigneshkumar.rajendran@example.com', role: 'Project Manager & Admin', active: true });
+  }
+  if (!appState.users.some((user) => user.id === 'u-4')) {
+    appState.users.push({ id: 'u-4', name: 'Meera Nair', email: 'meera@example.com', role: 'QA Analyst', active: true });
+  }
+}
+
+function getCurrentUser() {
+  return appState.users.find((user) => user.id === appState.currentUserId);
+}
+
+function isCurrentUserAdmin() {
+  const currentUser = getCurrentUser();
+  return currentUser?.id === ADMIN_USER_ID || currentUser?.name === ADMIN_NAME || currentUser?.role.toLowerCase().includes('admin');
+}
+
+function canViewTab(tab) {
+  return ['hub', 'my-tasks'].includes(tab) || isCurrentUserAdmin();
+}
+
+function canManageTask(task, action) {
+  if (isCurrentUserAdmin()) return true;
+  if (action === 'delete') return false;
+  return task.assigneeId === appState.currentUserId;
+}
+
+function isTaskOverdue(task) {
+  if (!task.dueDate || task.status === 'Closed') return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return new Date(`${task.dueDate}T00:00:00`) < today;
+}
+
 function render() {
   if (!root) return;
+  if (!canViewTab(appState.activeTab)) appState.activeTab = 'hub';
   const stats = calculateStats();
+  const isAdmin = isCurrentUserAdmin();
   root.innerHTML = `
     <div class="app-shell">
       <header class="hero">
         <div>
-          <p class="eyebrow">Team productivity workspace</p>
-          <h1>Tasks Management Hub</h1>
+          <p class="eyebrow animated-eyebrow"><span>Team productivity workspace</span><span>TaskFlow Hub</span><span>Smart utilization</span></p>
+          <h1><span>Tasks Management Hub</span></h1>
           <p class="hero-copy">Manage users, plan upcoming work, assign ownership, and keep every task status synchronized.</p>
         </div>
         <label class="current-user-card">
-          <span>Viewing My Tasks as</span>
+          <span>Signed in as</span>
           <select data-action="change-current-user" ${appState.users.length ? '' : 'disabled'}>
             ${appState.users.map((user) => `<option value="${escapeHtml(user.id)}" ${user.id === appState.currentUserId ? 'selected' : ''}>${escapeHtml(user.name)}</option>`).join('')}
           </select>
         </label>
       </header>
-      <section class="stats-grid" aria-label="Task and user summary">
+      ${isAdmin ? `<section class="stats-grid" aria-label="Task and user summary">
         ${statCard('👥', 'Users', stats.users, 'blue')}
         ${statCard('📋', 'Upcoming', stats.upcoming, 'purple')}
         ${statCard('▶', 'In Progress', stats.inProgress, 'amber')}
         ${statCard('✅', 'Closed', stats.closed, 'green')}
-      </section>
+      </section>` : ''}
       <nav class="tabs" aria-label="Main sections">
-        ${tabButton('users', '👥', 'Users Master')}
+        ${isAdmin ? tabButton('users', '👥', 'Users Master') : ''}
         ${tabButton('hub', '📊', 'Tasks Hub')}
         ${tabButton('my-tasks', '🙋', 'My Tasks')}
+        ${isAdmin ? tabButton('team-dashboard', '📈', 'Team Dashboard') : ''}
       </nav>
       ${renderActiveTab()}
       ${appState.confirmation ? renderConfirmDialog() : ''}
@@ -160,6 +214,7 @@ function tabButton(tab, icon, label) {
 function renderActiveTab() {
   if (appState.activeTab === 'users') return renderUsersTab();
   if (appState.activeTab === 'my-tasks') return renderMyTasksTab();
+  if (appState.activeTab === 'team-dashboard') return renderTeamDashboardTab();
   return renderTasksHubTab();
 }
 
@@ -207,10 +262,19 @@ function renderUsersList() {
 }
 
 function renderTasksHubTab() {
+  const visibleTasks = getFilteredTasks(appState.tasks);
+  const hubPanel = panel('Tasks Hub', 'All task assignments and live statuses. Use filters to focus by user, status, or overdue work.', `${renderTaskFilters()}${renderTaskBoard(visibleTasks)}`);
+  if (!isCurrentUserAdmin()) {
+    const editingTask = appState.tasks.find((task) => task.id === appState.editingTaskId);
+    if (editingTask && canManageTask(editingTask, 'edit')) {
+      return `<main class="workspace two-column wide-left">${panel('Edit my task', 'Update only work assigned to you. Admin-only options stay hidden.', renderTaskForm())}${hubPanel}</main>`;
+    }
+    return `<main class="workspace">${hubPanel}</main>`;
+  }
   return `
     <main class="workspace two-column wide-left">
-      ${panel(appState.editingTaskId ? 'Edit task' : 'Create upcoming task', 'Every new task lands in Tasks Hub with Upcoming status.', renderTaskForm())}
-      ${panel('Tasks Hub', 'All task assignments and live statuses.', renderTaskBoard(appState.tasks))}
+      ${panel(appState.editingTaskId ? 'Edit task' : 'Create upcoming task', 'Admins can create work now and assign an owner later based on resource availability.', renderTaskForm())}
+      ${hubPanel}
     </main>
   `;
 }
@@ -220,12 +284,69 @@ function renderMyTasksTab() {
   return `<main class="workspace">${panel('My Tasks', 'Start assigned tasks, move them to in-progress, and close them when done.', renderTaskBoard(myTasks, true))}</main>`;
 }
 
+
+function renderTaskFilters() {
+  return `
+    <form class="filters" aria-label="Task filters">
+      <label>User<select data-filter="userId"><option value="all" ${appState.filters.userId === 'all' ? 'selected' : ''}>All users</option><option value="unassigned" ${appState.filters.userId === 'unassigned' ? 'selected' : ''}>Unassigned</option>${appState.users.map((user) => `<option value="${escapeAttr(user.id)}" ${appState.filters.userId === user.id ? 'selected' : ''}>${escapeHtml(user.name)}</option>`).join('')}</select></label>
+      <label>Status<select data-filter="status"><option value="all" ${appState.filters.status === 'all' ? 'selected' : ''}>All statuses</option>${taskStatuses.map((status) => `<option value="${escapeAttr(status)}" ${appState.filters.status === status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}</select></label>
+      <label>Overdue<select data-filter="overdue"><option value="all" ${appState.filters.overdue === 'all' ? 'selected' : ''}>All tasks</option><option value="overdue" ${appState.filters.overdue === 'overdue' ? 'selected' : ''}>Overdue only</option><option value="not-overdue" ${appState.filters.overdue === 'not-overdue' ? 'selected' : ''}>Not overdue</option></select></label>
+    </form>
+  `;
+}
+
+function getFilteredTasks(tasks) {
+  return tasks.filter((task) => {
+    const userMatch = appState.filters.userId === 'all' || (appState.filters.userId === 'unassigned' ? !task.assigneeId : task.assigneeId === appState.filters.userId);
+    const statusMatch = appState.filters.status === 'all' || task.status === appState.filters.status;
+    const overdue = isTaskOverdue(task);
+    const overdueMatch = appState.filters.overdue === 'all' || (appState.filters.overdue === 'overdue' ? overdue : !overdue);
+    return userMatch && statusMatch && overdueMatch;
+  });
+}
+
+function renderTaskActions(task) {
+  const canEdit = canManageTask(task, 'edit');
+  const canStatus = canManageTask(task, 'status');
+  const canDelete = isCurrentUserAdmin();
+  const buttons = [
+    task.status === 'Upcoming' && canStatus ? `<button class="primary small" data-action="status" data-status="In Progress" data-id="${escapeAttr(task.id)}">▶ Start</button>` : '',
+    task.status !== 'Closed' && canStatus ? `<button class="success small" data-action="status" data-status="Closed" data-id="${escapeAttr(task.id)}">✅ Close</button>` : '',
+    canEdit ? `<button class="ghost small" data-action="edit-task" data-id="${escapeAttr(task.id)}">✏️ Edit</button>` : '',
+    canDelete ? `<button class="ghost danger small" data-action="delete-task" data-id="${escapeAttr(task.id)}">🗑️ Delete</button>` : '',
+  ].filter(Boolean);
+  if (!buttons.length) return '<div class="task-actions readonly">View only — actions are available on your own tasks.</div>';
+  return `<div class="task-actions">${buttons.join('')}</div>`;
+}
+
+function renderTeamDashboardTab() {
+  const openTasks = appState.tasks.filter((task) => task.status !== 'Closed');
+  const unassigned = appState.tasks.filter((task) => !task.assigneeId);
+  const maxAssigned = Math.max(1, ...appState.users.map((user) => openTasks.filter((task) => task.assigneeId === user.id).length));
+  const statusCounts = taskStatuses.map((status) => ({ status, count: appState.tasks.filter((task) => task.status === status).length }));
+  const totalTasks = Math.max(1, appState.tasks.length);
+  const upcomingDeg = (statusCounts[0].count / totalTasks) * 360;
+  const progressDeg = upcomingDeg + (statusCounts[1].count / totalTasks) * 360;
+  return `
+    <main class="workspace dashboard-grid">
+      ${panel('Team capacity', 'Open workload by active team member.', `<div class="bar-chart">${appState.users.map((user) => {
+        const count = openTasks.filter((task) => task.assigneeId === user.id).length;
+        return `<div class="bar-row"><span>${escapeHtml(user.name)}</span><div class="bar-track"><strong style="width:${Math.max(8, (count / maxAssigned) * 100)}%">${count}</strong></div></div>`;
+      }).join('')}</div>`)}
+      ${panel('Productivity movement', 'Current task status distribution.', `<div class="donut-card"><div class="donut" style="--upcoming-deg:${upcomingDeg}deg; --progress-deg:${progressDeg}deg"></div><div class="legend">${statusCounts.map((item) => `<span><i class="legend-dot ${item.status.toLowerCase().replace(' ', '-')}"></i>${item.status}: ${item.count}</span>`).join('')}</div></div>`)}
+      ${panel('Unassigned tasks', 'Work waiting for admin assignment.', unassigned.length ? renderTaskBoard(unassigned, true) : emptyState('No unassigned tasks', 'Every task currently has an owner.'))}
+    </main>
+  `;
+}
+
 function renderTaskForm() {
   const draft = appState.taskDraft;
+  const assigneeOptions = `<option value="">Unassigned — assign later</option>${appState.users.filter((user) => user.active).map((user) => `<option value="${escapeAttr(user.id)}" ${user.id === draft.assigneeId ? 'selected' : ''}>${escapeHtml(user.name)}</option>`).join('')}`;
+  const assigneeControl = isCurrentUserAdmin() ? `<label>Assignee<select name="assigneeId">${assigneeOptions}</select></label>` : `<label>Assignee<select name="assigneeId" disabled>${assigneeOptions}</select></label>`;
   return `
     <form class="form-grid" data-form="task">
       <label>Title<input name="title" value="${escapeAttr(draft.title)}" placeholder="Task title" /></label>
-      <label>Assignee<select name="assigneeId"><option value="">Choose user</option>${appState.users.filter((user) => user.active).map((user) => `<option value="${escapeAttr(user.id)}" ${user.id === draft.assigneeId ? 'selected' : ''}>${escapeHtml(user.name)}</option>`).join('')}</select></label>
+      ${assigneeControl}
       <label>Due date<input name="dueDate" type="date" value="${escapeAttr(draft.dueDate)}" /></label>
       <label>Priority<select name="priority">${priorities.map((priority) => `<option ${priority === draft.priority ? 'selected' : ''}>${priority}</option>`).join('')}</select></label>
       ${appState.editingTaskId ? `<label>Status<select name="status">${taskStatuses.map((status) => `<option ${status === draft.status ? 'selected' : ''}>${status}</option>`).join('')}</select></label>` : ''}
@@ -240,24 +361,21 @@ function renderTaskForm() {
 
 function renderTaskBoard(tasks, compact = false) {
   if (!tasks.length) return emptyState('No tasks found', 'Create or assign tasks to see them here.');
-  return `<div class="task-grid ${compact ? 'compact' : ''}">${tasks.map(renderTaskCard).join('')}</div>`;
+  return `<div class="task-grid ${compact ? 'compact' : ''}">${tasks.map((task) => renderTaskCard(task, compact)).join('')}</div>`;
 }
 
-function renderTaskCard(task) {
+function renderTaskCard(task, compact = false) {
   const assignee = appState.users.find((user) => user.id === task.assigneeId);
   const statusClass = task.status.toLowerCase().replace(' ', '-');
+  const overdue = isTaskOverdue(task);
+  const actions = renderTaskActions(task);
   return `
     <article class="task-card">
-      <div class="task-top"><span class="status ${statusClass}">${task.status}</span><span class="priority ${task.priority.toLowerCase()}">${task.priority}</span></div>
+      <div class="task-top"><span class="status ${statusClass}">${task.status}</span><span class="priority ${task.priority.toLowerCase()}">${task.priority}</span>${overdue ? '<span class="pill overdue">Overdue</span>' : ''}</div>
       <h3>${escapeHtml(task.title)}</h3>
       <p>${escapeHtml(task.description)}</p>
       <div class="task-meta"><span>👤 ${escapeHtml(assignee?.name ?? 'Unassigned')}</span><span>📅 ${formatDate(task.dueDate)}</span></div>
-      <div class="task-actions">
-        ${task.status === 'Upcoming' ? `<button class="primary small" data-action="status" data-status="In Progress" data-id="${escapeAttr(task.id)}">▶ Start</button>` : ''}
-        ${task.status !== 'Closed' ? `<button class="success small" data-action="status" data-status="Closed" data-id="${escapeAttr(task.id)}">✅ Close</button>` : ''}
-        <button class="ghost small" data-action="edit-task" data-id="${escapeAttr(task.id)}">✏️ Edit</button>
-        <button class="ghost danger small" data-action="delete-task" data-id="${escapeAttr(task.id)}">🗑️ Delete</button>
-      </div>
+      ${actions}
     </article>
   `;
 }
@@ -293,7 +411,14 @@ function bindEvents() {
   });
   root.querySelector('[data-action="change-current-user"]')?.addEventListener('change', (event) => {
     appState.currentUserId = event.target.value;
+    resetTaskForm(false);
     render();
+  });
+  root.querySelectorAll('[data-filter]').forEach((element) => {
+    element.addEventListener('change', (event) => {
+      appState.filters[event.target.dataset.filter] = event.target.value;
+      render();
+    });
   });
   root.querySelector('[data-form="user"]')?.addEventListener('submit', saveUser);
   root.querySelector('[data-form="task"]')?.addEventListener('submit', saveTask);
@@ -304,13 +429,15 @@ function handleAction(event) {
   const action = actionElement.dataset.action;
   const id = actionElement.dataset.id;
   if (action === 'tab') {
-    appState.activeTab = actionElement.dataset.tab;
+    const requestedTab = actionElement.dataset.tab;
+    if (!canViewTab(requestedTab)) return showToast('This area is available only for the admin.');
+    appState.activeTab = requestedTab;
     render();
   }
   if (action === 'cancel-user') resetUserForm();
   if (action === 'cancel-task') resetTaskForm();
-  if (action === 'edit-user') editUser(id);
-  if (action === 'delete-user') deleteUser(id);
+  if (action === 'edit-user' && isCurrentUserAdmin()) editUser(id);
+  if (action === 'delete-user' && isCurrentUserAdmin()) deleteUser(id);
   if (action === 'edit-task') editTask(id);
   if (action === 'delete-task') deleteTask(id);
   if (action === 'status') updateTaskStatus(id, actionElement.dataset.status);
@@ -397,12 +524,13 @@ function saveTask(event) {
     description: String(formData.get('description') ?? '').trim(),
     dueDate: String(formData.get('dueDate') ?? ''),
     priority: String(formData.get('priority') ?? 'Medium'),
-    assigneeId: String(formData.get('assigneeId') ?? ''),
+    assigneeId: isCurrentUserAdmin() ? String(formData.get('assigneeId') ?? '') : existing?.assigneeId ?? appState.currentUserId,
     status: appState.editingTaskId ? String(formData.get('status') ?? existing?.status ?? 'Upcoming') : 'Upcoming',
     createdAt: existing?.createdAt ?? '',
     updatedAt: existing?.updatedAt ?? '',
   };
-  if (!draft.title || !draft.description || !draft.dueDate || !draft.assigneeId) return showToast('Please complete task title, description, due date, and assignee.');
+  if (!isCurrentUserAdmin() && (!existing || !canManageTask(existing, 'edit'))) return showToast('You can edit only your assigned tasks.');
+  if (!draft.title || !draft.description || !draft.dueDate) return showToast('Please complete task title, description, and due date. Assignee can remain unassigned.');
   appState.confirmation = {
     title: appState.editingTaskId ? 'Save task changes?' : 'Create task?',
     message: appState.editingTaskId ? `Update “${draft.title}” in Tasks Hub?` : `Add “${draft.title}” to upcoming tasks?`,
@@ -425,6 +553,7 @@ function saveTask(event) {
 function editTask(id) {
   const task = appState.tasks.find((item) => item.id === id);
   if (!task) return;
+  if (!canManageTask(task, 'edit')) return showToast('You can edit only your assigned tasks.');
   appState.taskDraft = { ...task };
   appState.editingTaskId = task.id;
   appState.activeTab = 'hub';
@@ -434,6 +563,7 @@ function editTask(id) {
 function deleteTask(id) {
   const task = appState.tasks.find((item) => item.id === id);
   if (!task) return;
+  if (!isCurrentUserAdmin()) return showToast('Only the admin can delete tasks.');
   appState.confirmation = {
     title: 'Delete task?',
     message: `Permanently remove “${task.title}” from Tasks Hub?`,
@@ -451,6 +581,7 @@ function deleteTask(id) {
 function updateTaskStatus(id, status) {
   const task = appState.tasks.find((item) => item.id === id);
   if (!task) return;
+  if (!canManageTask(task, 'status')) return showToast('You can start or close only your assigned tasks.');
   appState.confirmation = {
     title: status === 'In Progress' ? 'Start task?' : 'Close task?',
     message: `Do you want to ${status === 'In Progress' ? 'start' : 'close'} “${task.title}”? This will update the status everywhere.`,
