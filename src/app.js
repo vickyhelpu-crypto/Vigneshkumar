@@ -164,7 +164,7 @@ function render() {
     <div class="app-shell">
       <header class="hero">
         <div>
-          <p class="eyebrow animated-eyebrow"><span>Team productivity workspace</span><span>TaskFlow Hub</span><span>Smart utilization</span></p>
+          <p class="eyebrow animated-eyebrow"><span>Team productivity workspace</span><span>Tasks Management</span><span>Smart utilization</span></p>
           <h1><span>Tasks Management Hub</span></h1>
           <p class="hero-copy">Manage users, plan upcoming work, assign ownership, and keep every task status synchronized.</p>
         </div>
