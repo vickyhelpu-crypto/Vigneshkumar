@@ -300,9 +300,9 @@ function renderMyTasksTab() {
 function renderTaskFilters() {
   return `
     <form class="filters" aria-label="Task filters">
-      <label>User<select data-filter="userId"><option value="all" ${appState.filters.userId === 'all' ? 'selected' : ''}>All users</option><option value="unassigned" ${appState.filters.userId === 'unassigned' ? 'selected' : ''}>Unassigned</option>${appState.users.map((user) => `<option value="${escapeAttr(user.id)}" ${appState.filters.userId === user.id ? 'selected' : ''}>${escapeHtml(user.name)}</option>`).join('')}</select></label>
-      <label>Status<select data-filter="status"><option value="all" ${appState.filters.status === 'all' ? 'selected' : ''}>All statuses</option>${taskStatuses.map((status) => `<option value="${escapeAttr(status)}" ${appState.filters.status === status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}</select></label>
-      <label>Overdue<select data-filter="overdue"><option value="all" ${appState.filters.overdue === 'all' ? 'selected' : ''}>All tasks</option><option value="overdue" ${appState.filters.overdue === 'overdue' ? 'selected' : ''}>Overdue only</option><option value="not-overdue" ${appState.filters.overdue === 'not-overdue' ? 'selected' : ''}>Not overdue</option></select></label>
+      <label>User<select data-filter="userId"><option value="all" ${appState.filters.userId === 'all' ? 'selected' : ''}>All Users</option><option value="unassigned" ${appState.filters.userId === 'unassigned' ? 'selected' : ''}>Unassigned</option>${appState.users.map((user) => `<option value="${escapeAttr(user.id)}" ${appState.filters.userId === user.id ? 'selected' : ''}>${escapeHtml(user.name)}</option>`).join('')}</select></label>
+      <label>Status<select data-filter="status"><option value="all" ${appState.filters.status === 'all' ? 'selected' : ''}>All Statuses</option>${taskStatuses.map((status) => `<option value="${escapeAttr(status)}" ${appState.filters.status === status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}</select></label>
+      <label>Overdue<select data-filter="overdue"><option value="all" ${appState.filters.overdue === 'all' ? 'selected' : ''}>All Tasks</option><option value="overdue" ${appState.filters.overdue === 'overdue' ? 'selected' : ''}>Overdue only</option><option value="not-overdue" ${appState.filters.overdue === 'not-overdue' ? 'selected' : ''}>Not overdue</option></select></label>
     </form>
   `;
 }
@@ -354,13 +354,13 @@ function renderTeamDashboardTab() {
 
 function renderTaskForm() {
   const draft = appState.taskDraft;
-  const assigneeOptions = `<option value="">Unassigned — assign later</option>${appState.users.filter((user) => user.active).map((user) => `<option value="${escapeAttr(user.id)}" ${user.id === draft.assigneeId ? 'selected' : ''}>${escapeHtml(user.name)}</option>`).join('')}`;
+  const assigneeOptions = `<option value="">Unassigned</option>${appState.users.filter((user) => user.active).map((user) => `<option value="${escapeAttr(user.id)}" ${user.id === draft.assigneeId ? 'selected' : ''}>${escapeHtml(user.name)}</option>`).join('')}`;
   const assigneeControl = isCurrentUserAdmin() ? `<label>Assignee<select name="assigneeId">${assigneeOptions}</select></label>` : `<label>Assignee<select name="assigneeId" disabled>${assigneeOptions}</select></label>`;
   return `
     <form class="form-grid" data-form="task">
       <label>Title<input name="title" value="${escapeAttr(draft.title)}" placeholder="Task title" /></label>
       ${assigneeControl}
-      <label>Due date<input name="dueDate" type="date" value="${escapeAttr(draft.dueDate)}" /></label>
+      <label>Due Date<input name="dueDate" type="date" value="${escapeAttr(draft.dueDate)}" /></label>
       <label>Priority<select name="priority">${priorities.map((priority) => `<option ${priority === draft.priority ? 'selected' : ''}>${priority}</option>`).join('')}</select></label>
       ${appState.editingTaskId ? `<label>Status<select name="status">${taskStatuses.map((status) => `<option ${status === draft.status ? 'selected' : ''}>${status}</option>`).join('')}</select></label>` : ''}
       <label class="full">Description<textarea name="description" placeholder="Describe what needs to be done" rows="4">${escapeHtml(draft.description)}</textarea></label>
