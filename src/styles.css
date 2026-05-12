@@ -10,6 +10,7 @@
 body { margin: 0; min-width: 320px; min-height: 100vh; }
 button, input, select, textarea { font: inherit; }
 button { border: 0; cursor: pointer; }
+select:not(:disabled) { cursor: pointer; }
 
 .app-shell {
   width: min(1440px, calc(100% - 32px));

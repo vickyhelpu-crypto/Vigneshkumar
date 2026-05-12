@@ -479,9 +479,9 @@ function saveUser(event) {
   if (!draft.name || !draft.email || !draft.role) return showToast('Please complete user name, email, and role.');
   if (appState.users.some((user) => user.email.toLowerCase() === draft.email && user.id !== appState.editingUserId)) return showToast('A user with this email already exists.');
   appState.confirmation = {
-    title: appState.editingUserId ? 'Save user changes?' : 'Create new user?',
+    title: appState.editingUserId ? 'Save User Changes?' : 'Create New User?',
     message: appState.editingUserId ? `Update ${draft.name}'s details?` : `Add ${draft.name} to the Users Master?`,
-    confirmLabel: appState.editingUserId ? 'Save changes' : 'Create user',
+    confirmLabel: appState.editingUserId ? 'Save Changes' : 'Create User',
     onConfirm: () => {
       if (appState.editingUserId) {
         appState.users = appState.users.map((user) => user.id === appState.editingUserId ? { ...user, ...draft, id: user.id } : user);
@@ -652,5 +652,3 @@ function escapeHtml(value) {
 function escapeAttr(value) {
   return escapeHtml(value).replaceAll('`', '&#096;');
 }
-
-
