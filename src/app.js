@@ -111,6 +111,12 @@ function createEmptyTask() {
 
 
 function migrateSeedData() {
+  appState.users = appState.users.map((user) => ({
+    ...user,
+    active: typeof user.active === 'boolean' ? user.active : user.isActive !== false,
+    role: user.role || 'Team member',
+  }));
+
   const adminIndex = appState.users.findIndex((user) => user.id === ADMIN_USER_ID || user.email === 'vignesh@example.com');
   if (adminIndex >= 0) {
     appState.users[adminIndex] = {
@@ -127,6 +133,11 @@ function migrateSeedData() {
   if (!appState.users.some((user) => user.id === 'u-4')) {
     appState.users.push({ id: 'u-4', name: 'Meera Nair', email: 'meera@example.com', role: 'QA Analyst', active: true });
   }
+  persist();
+}
+
+function getActiveUsers() {
+  return appState.users.filter((user) => user.active);
 }
 
 function getCurrentUser() {
@@ -160,6 +171,7 @@ function render() {
   if (!canViewTab(appState.activeTab)) appState.activeTab = 'hub';
   const stats = calculateStats();
   const isAdmin = isCurrentUserAdmin();
+  const activeUsers = getActiveUsers();
   root.innerHTML = `
     <div class="app-shell">
       <header class="hero">
@@ -170,8 +182,8 @@ function render() {
         </div>
         <label class="current-user-card">
           <span>Signed in as</span>
-          <select data-action="change-current-user" ${appState.users.length ? '' : 'disabled'}>
-            ${appState.users.map((user) => `<option value="${escapeHtml(user.id)}" ${user.id === appState.currentUserId ? 'selected' : ''}>${escapeHtml(user.name)}</option>`).join('')}
+          <select data-action="change-current-user" ${activeUsers.length ? '' : 'disabled'}>
+            ${activeUsers.map((user) => `<option value="${escapeHtml(user.id)}" ${user.id === appState.currentUserId ? 'selected' : ''}>${escapeHtml(user.name)}</option>`).join('')}
           </select>
         </label>
       </header>
@@ -221,7 +233,7 @@ function renderActiveTab() {
 function renderUsersTab() {
   return `
     <main class="workspace two-column">
-      ${panel(appState.editingUserId ? 'Edit user' : 'Add user', 'Maintain the Users Master list.', renderUserForm())}
+      ${panel(appState.editingUserId ? 'Edit User' : 'Add User', 'Maintain the Users Master list.', renderUserForm())}
       ${panel('Users Master', 'Edit or remove team members.', renderUsersList())}
     </main>
   `;
@@ -236,7 +248,7 @@ function renderUserForm() {
       <label>Role<input name="role" value="${escapeAttr(draft.role)}" placeholder="Role or team" /></label>
       <label>Status<select name="active"><option value="true" ${draft.active ? 'selected' : ''}>Active</option><option value="false" ${!draft.active ? 'selected' : ''}>Inactive</option></select></label>
       <div class="form-actions">
-        <button class="primary" type="submit">➕ ${appState.editingUserId ? 'Save user' : 'Add user'}</button>
+        <button class="primary" type="submit">➕ ${appState.editingUserId ? 'Save User' : 'Add User'}</button>
         ${appState.editingUserId ? '<button class="ghost" type="button" data-action="cancel-user">Cancel</button>' : ''}
       </div>
     </form>
@@ -267,13 +279,13 @@ function renderTasksHubTab() {
   if (!isCurrentUserAdmin()) {
     const editingTask = appState.tasks.find((task) => task.id === appState.editingTaskId);
     if (editingTask && canManageTask(editingTask, 'edit')) {
-      return `<main class="workspace two-column wide-left">${panel('Edit my task', 'Update only work assigned to you. Admin-only options stay hidden.', renderTaskForm())}${hubPanel}</main>`;
+      return `<main class="workspace two-column wide-left">${panel('Edit My Task', 'Update only work assigned to you. Admin-only options stay hidden.', renderTaskForm())}${hubPanel}</main>`;
     }
     return `<main class="workspace">${hubPanel}</main>`;
   }
   return `
     <main class="workspace two-column wide-left">
-      ${panel(appState.editingTaskId ? 'Edit task' : 'Create upcoming task', 'Admins can create work now and assign an owner later based on resource availability.', renderTaskForm())}
+      ${panel(appState.editingTaskId ? 'Edit Task' : 'Create Upcoming Task', 'Admins can create work now and assign an owner later based on resource availability.', renderTaskForm())}
       ${hubPanel}
     </main>
   `;
@@ -322,19 +334,20 @@ function renderTaskActions(task) {
 function renderTeamDashboardTab() {
   const openTasks = appState.tasks.filter((task) => task.status !== 'Closed');
   const unassigned = appState.tasks.filter((task) => !task.assigneeId);
-  const maxAssigned = Math.max(1, ...appState.users.map((user) => openTasks.filter((task) => task.assigneeId === user.id).length));
+  const activeUsers = getActiveUsers();
+  const maxAssigned = Math.max(1, ...activeUsers.map((user) => openTasks.filter((task) => task.assigneeId === user.id).length));
   const statusCounts = taskStatuses.map((status) => ({ status, count: appState.tasks.filter((task) => task.status === status).length }));
   const totalTasks = Math.max(1, appState.tasks.length);
   const upcomingDeg = (statusCounts[0].count / totalTasks) * 360;
   const progressDeg = upcomingDeg + (statusCounts[1].count / totalTasks) * 360;
   return `
     <main class="workspace dashboard-grid">
-      ${panel('Team capacity', 'Open workload by active team member.', `<div class="bar-chart">${appState.users.map((user) => {
+      ${panel('Team Capacity', 'Open workload by active team member.', `<div class="bar-chart">${activeUsers.map((user) => {
         const count = openTasks.filter((task) => task.assigneeId === user.id).length;
         return `<div class="bar-row"><span>${escapeHtml(user.name)}</span><div class="bar-track"><strong style="width:${Math.max(8, (count / maxAssigned) * 100)}%">${count}</strong></div></div>`;
       }).join('')}</div>`)}
-      ${panel('Productivity movement', 'Current task status distribution.', `<div class="donut-card"><div class="donut" style="--upcoming-deg:${upcomingDeg}deg; --progress-deg:${progressDeg}deg"></div><div class="legend">${statusCounts.map((item) => `<span><i class="legend-dot ${item.status.toLowerCase().replace(' ', '-')}"></i>${item.status}: ${item.count}</span>`).join('')}</div></div>`)}
-      ${panel('Unassigned tasks', 'Work waiting for admin assignment.', unassigned.length ? renderTaskBoard(unassigned, true) : emptyState('No unassigned tasks', 'Every task currently has an owner.'))}
+      ${panel('Productivity Movement', 'Current task status distribution.', `<div class="donut-card"><div class="donut" style="--upcoming-deg:${upcomingDeg}deg; --progress-deg:${progressDeg}deg"></div><div class="legend">${statusCounts.map((item) => `<span><i class="legend-dot ${item.status.toLowerCase().replace(' ', '-')}"></i>${item.status}: ${item.count}</span>`).join('')}</div></div>`)}
+      ${panel('Unassigned Tasks', 'Work waiting for admin assignment.', unassigned.length ? renderTaskBoard(unassigned, true) : emptyState('No unassigned tasks', 'Every task currently has an owner.'))}
     </main>
   `;
 }
@@ -352,7 +365,7 @@ function renderTaskForm() {
       ${appState.editingTaskId ? `<label>Status<select name="status">${taskStatuses.map((status) => `<option ${status === draft.status ? 'selected' : ''}>${status}</option>`).join('')}</select></label>` : ''}
       <label class="full">Description<textarea name="description" placeholder="Describe what needs to be done" rows="4">${escapeHtml(draft.description)}</textarea></label>
       <div class="form-actions">
-        <button class="primary" type="submit">➕ ${appState.editingTaskId ? 'Save task' : 'Create task'}</button>
+        <button class="primary" type="submit">➕ ${appState.editingTaskId ? 'Save Task' : 'Create Task'}</button>
         ${appState.editingTaskId ? '<button class="ghost" type="button" data-action="cancel-task">Cancel</button>' : ''}
       </div>
     </form>
@@ -499,9 +512,9 @@ function deleteUser(id) {
   if (!user) return;
   const assignedCount = appState.tasks.filter((task) => task.assigneeId === user.id && task.status !== 'Closed').length;
   appState.confirmation = {
-    title: 'Delete user?',
+    title: 'Delete User?',
     message: assignedCount ? `${user.name} has ${assignedCount} open task(s). Delete anyway and unassign those tasks?` : `Delete ${user.name} from Users Master?`,
-    confirmLabel: 'Delete user',
+    confirmLabel: 'Delete User',
     danger: true,
     onConfirm: () => {
       appState.users = appState.users.filter((item) => item.id !== user.id);
@@ -532,9 +545,9 @@ function saveTask(event) {
   if (!isCurrentUserAdmin() && (!existing || !canManageTask(existing, 'edit'))) return showToast('You can edit only your assigned tasks.');
   if (!draft.title || !draft.description || !draft.dueDate) return showToast('Please complete task title, description, and due date. Assignee can remain unassigned.');
   appState.confirmation = {
-    title: appState.editingTaskId ? 'Save task changes?' : 'Create task?',
+    title: appState.editingTaskId ? 'Save Task Changes?' : 'Create Task?',
     message: appState.editingTaskId ? `Update “${draft.title}” in Tasks Hub?` : `Add “${draft.title}” to upcoming tasks?`,
-    confirmLabel: appState.editingTaskId ? 'Save task' : 'Create task',
+    confirmLabel: appState.editingTaskId ? 'Save Task' : 'Create Task',
     onConfirm: () => {
       const now = new Date().toISOString();
       if (appState.editingTaskId) {
@@ -565,9 +578,9 @@ function deleteTask(id) {
   if (!task) return;
   if (!isCurrentUserAdmin()) return showToast('Only the admin can delete tasks.');
   appState.confirmation = {
-    title: 'Delete task?',
+    title: 'Delete Task?',
     message: `Permanently remove “${task.title}” from Tasks Hub?`,
-    confirmLabel: 'Delete task',
+    confirmLabel: 'Delete Task',
     danger: true,
     onConfirm: () => {
       appState.tasks = appState.tasks.filter((item) => item.id !== task.id);
@@ -583,9 +596,9 @@ function updateTaskStatus(id, status) {
   if (!task) return;
   if (!canManageTask(task, 'status')) return showToast('You can start or close only your assigned tasks.');
   appState.confirmation = {
-    title: status === 'In Progress' ? 'Start task?' : 'Close task?',
+    title: status === 'In Progress' ? 'Start Task?' : 'Close Task?',
     message: `Do you want to ${status === 'In Progress' ? 'start' : 'close'} “${task.title}”? This will update the status everywhere.`,
-    confirmLabel: status === 'In Progress' ? 'Start task' : 'Close task',
+    confirmLabel: status === 'In Progress' ? 'Start Task' : 'Close Task and mark as done',
     onConfirm: () => {
       appState.tasks = appState.tasks.map((item) => item.id === task.id ? { ...item, status, updatedAt: new Date().toISOString() } : item);
       showToast(status === 'In Progress' ? 'Task moved to In Progress.' : 'Task closed successfully.', false);
@@ -640,33 +653,4 @@ function escapeAttr(value) {
   return escapeHtml(value).replaceAll('`', '&#096;');
 }
 
-// Inactive users should not be displayed in assignee option and signed in user dropdown, but their existing tasks should remain visible in the hub and dashboards until reassigned or closed. This function migrates any existing seed data to ensure the admin user is present and active, and adds a default inactive user if not already present for testing purposes
-function migrateSeedData() {
-  const adminIndex = appState.users.findIndex((user) => user.id === ADMIN_USER_ID || user.email === 'admin@example.com');
-  if (adminIndex >= 0) {
-    appState.users[adminIndex] = {
-      ...appState.users[adminIndex],
-      id: ADMIN_USER_ID,
-      name: ADMIN_NAME,
-      email: 'admin@example.com',
-      isActive: true
-    };
-  } else {
-    appState.users.push({
-      id: ADMIN_USER_ID,
-      name: ADMIN_NAME,
-      email: 'admin@example.com',
-      isActive: true
-    });
-  }
 
-  const defaultInactiveUser = appState.users.find((user) => user.id === DEFAULT_INACTIVE_USER_ID);
-  if (!defaultInactiveUser) {
-    appState.users.push({
-      id: DEFAULT_INACTIVE_USER_ID,
-      name: DEFAULT_INACTIVE_USER_NAME,
-      email: 'inactive@example.com',
-      isActive: false
-    });
-  }
-}
