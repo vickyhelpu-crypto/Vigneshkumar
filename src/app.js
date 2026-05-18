@@ -1,6 +1,7 @@
 const STORAGE_KEYS = {
   users: 'taskflow-users',
   tasks: 'taskflow-tasks',
+  adminNotifications: 'taskflow-admin-notifications',
 };
 
 const taskStatuses = ['Upcoming', 'In Progress', 'Closed'];
@@ -11,6 +12,7 @@ const ADMIN_NAME = 'Vigneshkumar Rajendran';
 const appState = {
   users: readStorage(STORAGE_KEYS.users, getDefaultUsers()),
   tasks: readStorage(STORAGE_KEYS.tasks, getDefaultTasks()),
+  adminNotifications: readStorage(STORAGE_KEYS.adminNotifications, []),
   activeTab: 'hub',
   currentUserId: '',
   editingUserId: null,
@@ -52,6 +54,7 @@ function readStorage(key, fallback) {
 function persist() {
   localStorage.setItem(STORAGE_KEYS.users, JSON.stringify(appState.users));
   localStorage.setItem(STORAGE_KEYS.tasks, JSON.stringify(appState.tasks));
+  localStorage.setItem(STORAGE_KEYS.adminNotifications, JSON.stringify(appState.adminNotifications));
 }
 
 function getDefaultUsers() {
@@ -133,6 +136,8 @@ function migrateSeedData() {
   if (!appState.users.some((user) => user.id === 'u-4')) {
     appState.users.push({ id: 'u-4', name: 'Meera Nair', email: 'meera@example.com', role: 'QA Analyst', active: true });
   }
+  appState.adminNotifications = Array.isArray(appState.adminNotifications) ? appState.adminNotifications : [];
+  enforceInactiveUserTaskRules();
   persist();
 }
 
@@ -164,6 +169,82 @@ function isTaskOverdue(task) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return new Date(`${task.dueDate}T00:00:00`) < today;
+}
+
+function getReassignableTasksForUser(userId) {
+  return appState.tasks.filter((task) => task.assigneeId === userId && task.status !== 'Closed');
+}
+
+function addAdminNotification(message, options = {}) {
+  appState.adminNotifications = [
+    { id: createId('n'), message, createdAt: new Date().toISOString(), read: false, ...options },
+    ...appState.adminNotifications,
+  ].slice(0, 8);
+}
+
+function getInactiveTaskNotificationsForUser(userId) {
+  return appState.adminNotifications.filter((notification) => (
+    !notification.read
+    && notification.type === 'inactive-user-tasks'
+    && notification.userId === userId
+    && Array.isArray(notification.taskIds)
+  ));
+}
+
+function restoreInactiveUserTasks(userId) {
+  const notifications = getInactiveTaskNotificationsForUser(userId);
+  if (!notifications.length) return 0;
+
+  const taskIds = new Set(notifications.flatMap((notification) => notification.taskIds));
+  let restoredCount = 0;
+  const now = new Date().toISOString();
+  appState.tasks = appState.tasks.map((task) => {
+    if (!taskIds.has(task.id) || task.assigneeId || task.status === 'Closed') return task;
+    restoredCount += 1;
+    return { ...task, assigneeId: userId, updatedAt: now };
+  });
+  appState.adminNotifications = appState.adminNotifications.map((notification) => (
+    notifications.some((item) => item.id === notification.id) ? { ...notification, read: true } : notification
+  ));
+  return restoredCount;
+}
+
+function refreshInactiveTaskNotifications() {
+  appState.adminNotifications = appState.adminNotifications.map((notification) => {
+    if (notification.read || notification.type !== 'inactive-user-tasks' || !Array.isArray(notification.taskIds)) return notification;
+    const pendingTasks = appState.tasks.filter((task) => (
+      notification.taskIds.includes(task.id) && !task.assigneeId && task.status !== 'Closed'
+    ));
+    if (!pendingTasks.length) return { ...notification, read: true };
+
+    const user = appState.users.find((item) => item.id === notification.userId);
+    return {
+      ...notification,
+      taskIds: pendingTasks.map((task) => task.id),
+      message: `${user?.name ?? 'Inactive user'} was marked inactive. ${pendingTasks.length} open task(s) are now unassigned and need reassignment.`,
+    };
+  });
+}
+
+function enforceInactiveUserTaskRules() {
+  const inactiveUsersWithTasks = appState.users
+    .filter((user) => !user.active)
+    .map((user) => ({ user, tasks: getReassignableTasksForUser(user.id) }))
+    .filter((item) => item.tasks.length);
+  if (!inactiveUsersWithTasks.length) return;
+
+  const now = new Date().toISOString();
+  const inactiveUserIds = new Set(inactiveUsersWithTasks.map((item) => item.user.id));
+  appState.tasks = appState.tasks.map((task) => (
+    inactiveUserIds.has(task.assigneeId) && task.status !== 'Closed' ? { ...task, assigneeId: '', updatedAt: now } : task
+  ));
+  inactiveUsersWithTasks.forEach(({ user, tasks }) => {
+    addAdminNotification(`${user.name} is inactive. ${tasks.length} open task(s) are now unassigned and need reassignment.`, {
+      type: 'inactive-user-tasks',
+      userId: user.id,
+      taskIds: tasks.map((task) => task.id),
+    });
+  });
 }
 
 function render() {
@@ -199,6 +280,7 @@ function render() {
         ${tabButton('my-tasks', '🙋', 'My Tasks')}
         ${isAdmin ? tabButton('team-dashboard', '📈', 'Team Dashboard') : ''}
       </nav>
+      ${isAdmin ? renderAdminNotifications() : ''}
       ${renderActiveTab()}
       ${appState.confirmation ? renderConfirmDialog() : ''}
     </div>
@@ -228,6 +310,21 @@ function renderActiveTab() {
   if (appState.activeTab === 'my-tasks') return renderMyTasksTab();
   if (appState.activeTab === 'team-dashboard') return renderTeamDashboardTab();
   return renderTasksHubTab();
+}
+
+function renderAdminNotifications() {
+  const unreadNotifications = appState.adminNotifications.filter((notification) => !notification.read);
+  if (!unreadNotifications.length) return '';
+  return `
+    <section class="admin-alerts" aria-label="Admin notifications">
+      ${unreadNotifications.map((notification) => `
+        <div class="admin-alert">
+          <span>${escapeHtml(notification.message)}</span>
+          <button class="ghost small" data-action="dismiss-notification" data-id="${escapeAttr(notification.id)}">Dismiss</button>
+        </div>
+      `).join('')}
+    </section>
+  `;
 }
 
 function renderUsersTab() {
@@ -354,7 +451,9 @@ function renderTeamDashboardTab() {
 
 function renderTaskForm() {
   const draft = appState.taskDraft;
-  const assigneeOptions = `<option value="">Unassigned</option>${appState.users.filter((user) => user.active).map((user) => `<option value="${escapeAttr(user.id)}" ${user.id === draft.assigneeId ? 'selected' : ''}>${escapeHtml(user.name)}</option>`).join('')}`;
+  const selectedInactiveAssignee = appState.users.find((user) => user.id === draft.assigneeId && !user.active);
+  const assigneeUsers = selectedInactiveAssignee ? [...getActiveUsers(), selectedInactiveAssignee] : getActiveUsers();
+  const assigneeOptions = `<option value="">Unassigned</option>${assigneeUsers.map((user) => `<option value="${escapeAttr(user.id)}" ${user.id === draft.assigneeId ? 'selected' : ''}>${escapeHtml(user.name)}${user.active ? '' : ' (Inactive)'}</option>`).join('')}`;
   const assigneeControl = isCurrentUserAdmin() ? `<label>Assignee<select name="assigneeId">${assigneeOptions}</select></label>` : `<label>Assignee<select name="assigneeId" disabled>${assigneeOptions}</select></label>`;
   return `
     <form class="form-grid" data-form="task">
@@ -454,6 +553,7 @@ function handleAction(event) {
   if (action === 'edit-task') editTask(id);
   if (action === 'delete-task') deleteTask(id);
   if (action === 'status') updateTaskStatus(id, actionElement.dataset.status);
+  if (action === 'dismiss-notification') dismissNotification(id);
   if (action === 'cancel-confirm') {
     appState.confirmation = null;
     render();
@@ -478,14 +578,38 @@ function saveUser(event) {
   };
   if (!draft.name || !draft.email || !draft.role) return showToast('Please complete user name, email, and role.');
   if (appState.users.some((user) => user.email.toLowerCase() === draft.email && user.id !== appState.editingUserId)) return showToast('A user with this email already exists.');
+  const existingUser = appState.users.find((user) => user.id === appState.editingUserId);
+  const reassignableTasks = existingUser && existingUser.active && !draft.active ? getReassignableTasksForUser(existingUser.id) : [];
+  const restorableNotifications = existingUser && !existingUser.active && draft.active ? getInactiveTaskNotificationsForUser(existingUser.id) : [];
+  const restorableTaskIds = new Set(restorableNotifications.flatMap((notification) => notification.taskIds));
+  const restorableTaskCount = appState.tasks.filter((task) => restorableTaskIds.has(task.id) && !task.assigneeId && task.status !== 'Closed').length;
   appState.confirmation = {
     title: appState.editingUserId ? 'Save User Changes?' : 'Create New User?',
-    message: appState.editingUserId ? `Update ${draft.name}'s details?` : `Add ${draft.name} to the Users Master?`,
+    message: appState.editingUserId && reassignableTasks.length
+      ? `Update ${draft.name}'s details? ${reassignableTasks.length} open task(s) will be unassigned and the admin will be notified to reassign them. Closed tasks will stay assigned.`
+      : appState.editingUserId && restorableNotifications.length
+        ? `Update ${draft.name}'s details? ${restorableTaskCount} task(s) still unassigned from the inactive period will be assigned back to this user. Tasks already reassigned to someone else will stay there.`
+      : appState.editingUserId ? `Update ${draft.name}'s details?` : `Add ${draft.name} to the Users Master?`,
     confirmLabel: appState.editingUserId ? 'Save Changes' : 'Create User',
     onConfirm: () => {
       if (appState.editingUserId) {
         appState.users = appState.users.map((user) => user.id === appState.editingUserId ? { ...user, ...draft, id: user.id } : user);
-        showToast('User updated successfully.', false);
+        if (reassignableTasks.length) {
+          const now = new Date().toISOString();
+          appState.tasks = appState.tasks.map((task) => task.assigneeId === appState.editingUserId && task.status !== 'Closed' ? { ...task, assigneeId: '', updatedAt: now } : task);
+          addAdminNotification(`${draft.name} was marked inactive. ${reassignableTasks.length} open task(s) are now unassigned and need reassignment.`, {
+            type: 'inactive-user-tasks',
+            userId: appState.editingUserId,
+            taskIds: reassignableTasks.map((task) => task.id),
+          });
+          if (appState.currentUserId === appState.editingUserId) appState.currentUserId = appState.users.find((item) => item.active)?.id ?? appState.users[0]?.id ?? '';
+          showToast('User updated. Open tasks were unassigned for admin reassignment.', false);
+        } else if (restorableNotifications.length) {
+          const restoredCount = restoreInactiveUserTasks(appState.editingUserId);
+          showToast(restoredCount ? `${restoredCount} unassigned task(s) restored to ${draft.name}.` : 'User updated. Previous reassignment notification was cleared.', false);
+        } else {
+          showToast('User updated successfully.', false);
+        }
       } else {
         const user = { ...draft, id: createId('u') };
         appState.users = [...appState.users, user];
@@ -495,6 +619,14 @@ function saveUser(event) {
       resetUserForm(false);
     },
   };
+  render();
+}
+
+function dismissNotification(id) {
+  appState.adminNotifications = appState.adminNotifications.map((notification) => (
+    notification.id === id ? { ...notification, read: true } : notification
+  ));
+  persist();
   render();
 }
 
@@ -510,7 +642,7 @@ function editUser(id) {
 function deleteUser(id) {
   const user = appState.users.find((item) => item.id === id);
   if (!user) return;
-  const assignedCount = appState.tasks.filter((task) => task.assigneeId === user.id && task.status !== 'Closed').length;
+  const assignedCount = getReassignableTasksForUser(user.id).length;
   appState.confirmation = {
     title: 'Delete User?',
     message: assignedCount ? `${user.name} has ${assignedCount} open task(s). Delete anyway and unassign those tasks?` : `Delete ${user.name} from Users Master?`,
@@ -544,6 +676,8 @@ function saveTask(event) {
   };
   if (!isCurrentUserAdmin() && (!existing || !canManageTask(existing, 'edit'))) return showToast('You can edit only your assigned tasks.');
   if (!draft.title || !draft.description || !draft.dueDate) return showToast('Please complete task title, description, and due date. Assignee can remain unassigned.');
+  const assignedUser = appState.users.find((user) => user.id === draft.assigneeId);
+  if (assignedUser && !assignedUser.active && draft.status !== 'Closed') return showToast('Inactive users can be assigned only to closed tasks.');
   appState.confirmation = {
     title: appState.editingTaskId ? 'Save Task Changes?' : 'Create Task?',
     message: appState.editingTaskId ? `Update “${draft.title}” in Tasks Hub?` : `Add “${draft.title}” to upcoming tasks?`,
@@ -552,9 +686,11 @@ function saveTask(event) {
       const now = new Date().toISOString();
       if (appState.editingTaskId) {
         appState.tasks = appState.tasks.map((task) => task.id === appState.editingTaskId ? { ...task, ...draft, id: task.id, createdAt: task.createdAt, updatedAt: now } : task);
+        refreshInactiveTaskNotifications();
         showToast('Task updated successfully.', false);
       } else {
         appState.tasks = [...appState.tasks, { ...draft, id: createId('t'), status: 'Upcoming', createdAt: now, updatedAt: now }];
+        refreshInactiveTaskNotifications();
         showToast('Task added to Tasks Hub.', false);
       }
       resetTaskForm(false);
@@ -584,6 +720,7 @@ function deleteTask(id) {
     danger: true,
     onConfirm: () => {
       appState.tasks = appState.tasks.filter((item) => item.id !== task.id);
+      refreshInactiveTaskNotifications();
       if (appState.editingTaskId === task.id) resetTaskForm(false);
       showToast('Task deleted.', false);
     },
@@ -601,6 +738,7 @@ function updateTaskStatus(id, status) {
     confirmLabel: status === 'In Progress' ? 'Start Task' : 'Close Task and mark as done',
     onConfirm: () => {
       appState.tasks = appState.tasks.map((item) => item.id === task.id ? { ...item, status, updatedAt: new Date().toISOString() } : item);
+      refreshInactiveTaskNotifications();
       showToast(status === 'In Progress' ? 'Task moved to In Progress.' : 'Task closed successfully.', false);
     },
   };

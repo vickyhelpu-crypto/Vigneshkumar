@@ -86,9 +86,6 @@ select:not(:disabled) { cursor: pointer; }
   gap: 8px;
   margin-bottom: 22px;
   padding: 8px;
-  position: sticky;
-  top: 12px;
-  z-index: 5;
 }
 .tab {
   align-items: center;
@@ -104,6 +101,23 @@ select:not(:disabled) { cursor: pointer; }
   transition: .2s ease;
 }
 .tab.active, .tab:hover { background: #172554; color: white; transform: translateY(-1px); }
+
+.admin-alerts {
+  display: grid;
+  gap: 10px;
+}
+.admin-alert {
+  align-items: center;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 18px;
+  color: #7c2d12;
+  display: flex;
+  font-weight: 800;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 14px 16px;
+}
 
 .workspace { display: grid; gap: 22px; }
 .two-column { grid-template-columns: minmax(340px, .82fr) minmax(0, 1.18fr); }

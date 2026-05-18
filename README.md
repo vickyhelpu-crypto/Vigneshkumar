@@ -5,6 +5,7 @@ TaskFlow Hub is a lightweight browser app for managing team users and task assig
 ## Features
 
 - Users Master for creating, editing, activating/deactivating, and deleting users.
+- Marking a user inactive automatically unassigns their non-closed tasks and notifies the admin to reassign them; reactivating the user restores any of those tasks that are still unassigned.
 - Tasks Hub for recording upcoming tasks, priorities, due dates, and assignments.
 - My Tasks view filtered by the currently selected user.
 - Task lifecycle actions to start work, move tasks to in-progress, and close tasks.
