@@ -11,7 +11,7 @@ execFileSync(process.execPath, ['--check', 'src/app.js'], { stdio: 'inherit' });
 const html = readFileSync('index.html', 'utf8');
 const app = readFileSync('src/app.js', 'utf8');
 const css = readFileSync('src/styles.css', 'utf8');
-for (const expected of ['Users Master', 'Tasks Hub', 'My Tasks']) {
+for (const expected of ['Users Master', 'Tasks Hub', 'My Tasks', 'Reports']) {
   if (!app.includes(expected)) throw new Error(`Missing section text: ${expected}`);
 }
 if (!html.includes('/src/app.js')) throw new Error('HTML does not load app.js');

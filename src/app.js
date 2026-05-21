@@ -21,6 +21,7 @@ const appState = {
   taskDraft: createEmptyTask(),
   confirmation: null,
   filters: { userId: 'all', status: 'all', overdue: 'all' },
+  reportFilters: { period: 'weekly', userId: 'all', status: 'all', priority: 'all', chartType: 'pie' },
   toastTimer: null,
 };
 
@@ -182,6 +183,9 @@ function addAdminNotification(message, options = {}) {
   ].slice(0, 8);
 }
 
+// When a user is reactivated, offer to restore their tasks if there are any pending notifications about them
+
+
 function getInactiveTaskNotificationsForUser(userId) {
   return appState.adminNotifications.filter((notification) => (
     !notification.read
@@ -279,6 +283,7 @@ function render() {
         ${tabButton('hub', '📊', 'Tasks Hub')}
         ${tabButton('my-tasks', '🙋', 'My Tasks')}
         ${isAdmin ? tabButton('team-dashboard', '📈', 'Team Dashboard') : ''}
+        ${isAdmin ? tabButton('reports', '📑', 'Reports') : ''}
       </nav>
       ${isAdmin ? renderAdminNotifications() : ''}
       ${renderActiveTab()}
@@ -309,6 +314,7 @@ function renderActiveTab() {
   if (appState.activeTab === 'users') return renderUsersTab();
   if (appState.activeTab === 'my-tasks') return renderMyTasksTab();
   if (appState.activeTab === 'team-dashboard') return renderTeamDashboardTab();
+  if (appState.activeTab === 'reports') return renderReportsTab();
   return renderTasksHubTab();
 }
 
@@ -449,6 +455,156 @@ function renderTeamDashboardTab() {
   `;
 }
 
+function renderReportsTab() {
+  const reportTasks = getReportTasks();
+  const summary = getReportSummary(reportTasks);
+  const periodLabel = appState.reportFilters.period === 'weekly' ? 'Weekly Report' : (appState.reportFilters.period === 'monthly' ? 'Monthly Report' : 'Yearly Report');
+  return `
+    <main class="workspace reports-layout">
+      ${panel('Reports', 'Review weekly or monthly task performance, filter the result set, and export it.', `
+        ${renderReportControls()}
+        <section class="report-summary" aria-label="Report summary">
+          ${statCard('Total', 'Tasks', summary.total, 'blue')}
+          ${statCard('Open', 'Open', summary.open, 'amber')}
+          ${statCard('Done', 'Closed', summary.closed, 'green')}
+          ${statCard('Late', 'Overdue', summary.overdue, 'purple')}
+        </section>
+      `)}
+      ${panel(`${periodLabel} Chart`, 'Switch between pie and bar chart views.', renderReportChart(reportTasks))}
+      ${panel(`${periodLabel} Details`, 'Filtered task records included in the selected report.', renderReportTable(reportTasks))}
+    </main>
+  `;
+}
+
+function renderReportControls() {
+  const filters = appState.reportFilters;
+  return `
+    <form class="filters report-controls" aria-label="Report filters">
+      <label>Report Type<select data-report-filter="period">
+        <option value="weekly" ${filters.period === 'weekly' ? 'selected' : ''}>Weekly</option>
+        <option value="monthly" ${filters.period === 'monthly' ? 'selected' : ''}>Monthly Report</option>
+        <option value="yearly" ${filters.period === 'yearly' ? 'selected' : ''}>Yearly Report</option>
+      </select></label>
+      <label>User<select data-report-filter="userId">
+        <option value="all" ${filters.userId === 'all' ? 'selected' : ''}>All Users</option>
+        <option value="unassigned" ${filters.userId === 'unassigned' ? 'selected' : ''}>Unassigned</option>
+        ${appState.users.map((user) => `<option value="${escapeAttr(user.id)}" ${filters.userId === user.id ? 'selected' : ''}>${escapeHtml(user.name)}</option>`).join('')}
+      </select></label>
+      <label>Status<select data-report-filter="status">
+        <option value="all" ${filters.status === 'all' ? 'selected' : ''}>All Statuses</option>
+        ${taskStatuses.map((status) => `<option value="${escapeAttr(status)}" ${filters.status === status ? 'selected' : ''}>${escapeHtml(status)}</option>`).join('')}
+      </select></label>
+      <label>Priority<select data-report-filter="priority">
+        <option value="all" ${filters.priority === 'all' ? 'selected' : ''}>All Priorities</option>
+        ${priorities.map((priority) => `<option value="${escapeAttr(priority)}" ${filters.priority === priority ? 'selected' : ''}>${escapeHtml(priority)}</option>`).join('')}
+      </select></label>
+      <label>Chart<select data-report-filter="chartType">
+        <option value="pie" ${filters.chartType === 'pie' ? 'selected' : ''}>Pie Chart</option>
+        <option value="bar" ${filters.chartType === 'bar' ? 'selected' : ''}>Bar Chart</option>
+      </select></label>
+      <div class="export-actions" aria-label="Export report">
+        <button class="ghost small" type="button" data-action="export-report" data-format="excel">Excel</button>
+        <button class="ghost small" type="button" data-action="export-report" data-format="pdf">PDF</button>
+        <button class="ghost small" type="button" data-action="export-report" data-format="word">Word</button>
+      </div>
+    </form>
+  `;
+}
+
+function getReportTasks() {
+  const { start, end } = getReportDateRange(appState.reportFilters.period);
+  return appState.tasks.filter((task) => {
+    const dueDate = new Date(`${task.dueDate}T00:00:00`);
+    const inPeriod = dueDate >= start && dueDate <= end;
+    const userMatch = appState.reportFilters.userId === 'all' || (appState.reportFilters.userId === 'unassigned' ? !task.assigneeId : task.assigneeId === appState.reportFilters.userId);
+    const statusMatch = appState.reportFilters.status === 'all' || task.status === appState.reportFilters.status;
+    const priorityMatch = appState.reportFilters.priority === 'all' || task.priority === appState.reportFilters.priority;
+    return inPeriod && userMatch && statusMatch && priorityMatch;
+  });
+}
+
+function getReportDateRange(period) {
+  const now = new Date();
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  if (period === 'monthly') {
+    start.setDate(1);
+  } else if (period === 'yearly') {
+    start.setMonth(0, 1);
+  } else {
+    const day = start.getDay();
+    const mondayOffset = day === 0 ? -6 : 1 - day;
+    start.setDate(start.getDate() + mondayOffset);
+  }
+  const end = new Date(start);
+  if (period === 'monthly') {
+    end.setDate(start.getDate() + daysInMonth(start) - 1);
+  } else if (period === 'yearly') {
+    end.setMonth(11, 31);
+  } else {
+    end.setDate(start.getDate() + 6);
+  }
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+function daysInMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+}
+
+function getReportSummary(tasks) {
+  return {
+    total: tasks.length,
+    open: tasks.filter((task) => task.status !== 'Closed').length,
+    closed: tasks.filter((task) => task.status === 'Closed').length,
+    overdue: tasks.filter(isTaskOverdue).length,
+  };
+}
+
+function renderReportChart(tasks) {
+  const statusCounts = taskStatuses.map((status) => ({ status, count: tasks.filter((task) => task.status === status).length }));
+  if (!tasks.length) return emptyState('No report data', 'Adjust the filters or add tasks due in this reporting period.');
+  if (appState.reportFilters.chartType === 'bar') {
+    const maxCount = Math.max(1, ...statusCounts.map((item) => item.count));
+    return `<div class="report-chart bar-chart">${statusCounts.map((item) => `
+      <div class="bar-row">
+        <span>${escapeHtml(item.status)}</span>
+        <div class="bar-track"><strong style="width:${Math.max(10, (item.count / maxCount) * 100)}%">${item.count}</strong></div>
+      </div>
+    `).join('')}</div>`;
+  }
+
+  const totalTasks = Math.max(1, tasks.length);
+  const upcomingDeg = (statusCounts[0].count / totalTasks) * 360;
+  const progressDeg = upcomingDeg + (statusCounts[1].count / totalTasks) * 360;
+  return `<div class="donut-card report-chart">
+    <div class="donut" style="--upcoming-deg:${upcomingDeg}deg; --progress-deg:${progressDeg}deg"></div>
+    <div class="legend">${statusCounts.map((item) => `<span><i class="legend-dot ${item.status.toLowerCase().replace(' ', '-')}"></i>${item.status}: ${item.count}</span>`).join('')}</div>
+  </div>`;
+}
+
+function renderReportTable(tasks) {
+  if (!tasks.length) return emptyState('No tasks found', 'The current report filters do not match any task records.');
+  return `
+    <div class="report-table-wrap">
+      <table class="report-table">
+        <thead><tr><th>Task</th><th>Assignee</th><th>Status</th><th>Priority</th><th>Due Date</th><th>Overdue</th></tr></thead>
+        <tbody>${tasks.map((task) => {
+          const assignee = appState.users.find((user) => user.id === task.assigneeId);
+          return `<tr>
+            <td>${escapeHtml(task.title)}</td>
+            <td>${escapeHtml(assignee?.name ?? 'Unassigned')}</td>
+            <td>${escapeHtml(task.status)}</td>
+            <td>${escapeHtml(task.priority)}</td>
+            <td>${formatDate(task.dueDate)}</td>
+            <td>${isTaskOverdue(task) ? 'Yes' : 'No'}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>
+  `;
+}
+
 function renderTaskForm() {
   const draft = appState.taskDraft;
   const selectedInactiveAssignee = appState.users.find((user) => user.id === draft.assigneeId && !user.active);
@@ -532,6 +688,12 @@ function bindEvents() {
       render();
     });
   });
+  root.querySelectorAll('[data-report-filter]').forEach((element) => {
+    element.addEventListener('change', (event) => {
+      appState.reportFilters[event.target.dataset.reportFilter] = event.target.value;
+      render();
+    });
+  });
   root.querySelector('[data-form="user"]')?.addEventListener('submit', saveUser);
   root.querySelector('[data-form="task"]')?.addEventListener('submit', saveTask);
 }
@@ -554,6 +716,7 @@ function handleAction(event) {
   if (action === 'delete-task') deleteTask(id);
   if (action === 'status') updateTaskStatus(id, actionElement.dataset.status);
   if (action === 'dismiss-notification') dismissNotification(id);
+  if (action === 'export-report') exportReport(actionElement.dataset.format);
   if (action === 'cancel-confirm') {
     appState.confirmation = null;
     render();
@@ -768,6 +931,54 @@ function showToast(message, shouldRender = true) {
   document.body.append(toast);
   appState.toastTimer = setTimeout(() => toast.remove(), 2600);
   if (shouldRender) render();
+}
+
+function exportReport(format) {
+  if (!isCurrentUserAdmin()) return showToast('Reports are available only for the admin.');
+  const tasks = getReportTasks();
+  if (!tasks.length) return showToast('No report data to export.');
+
+  const reportName = appState.reportFilters.period === 'weekly' ? 'Weekly Report' : (appState.reportFilters.period === 'monthly' ? 'Monthly Report' : 'Yearly Report');
+  const fileBase = `${reportName.toLowerCase().replaceAll(' ', '-')}-${new Date().toISOString().slice(0, 10)}`;
+  const tableHtml = buildReportExportTable(tasks);
+  if (format === 'excel') {
+    downloadTextFile(`${fileBase}.xls`, `application/vnd.ms-excel`, `<html><body>${tableHtml}</body></html>`);
+    return showToast('Excel report exported.', false);
+  }
+  if (format === 'word') {
+    downloadTextFile(`${fileBase}.doc`, 'application/msword', `<html><body><h1>${escapeHtml(reportName)}</h1>${tableHtml}</body></html>`);
+    return showToast('Word report exported.', false);
+  }
+  if (format === 'pdf') {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return showToast('Allow pop-ups to export PDF.');
+    printWindow.document.write(`<html><head><title>${escapeHtml(reportName)}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#172033}table{border-collapse:collapse;width:100%}th,td{border:1px solid #cbd5e1;padding:8px;text-align:left}th{background:#eef2ff}</style></head><body><h1>${escapeHtml(reportName)}</h1>${tableHtml}</body></html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    return showToast('PDF export opened in print view.', false);
+  }
+  return showToast('Unsupported export format.');
+}
+
+function buildReportExportTable(tasks) {
+  const rows = tasks.map((task) => {
+    const assignee = appState.users.find((user) => user.id === task.assigneeId);
+    return `<tr><td>${escapeHtml(task.title)}</td><td>${escapeHtml(assignee?.name ?? 'Unassigned')}</td><td>${escapeHtml(task.status)}</td><td>${escapeHtml(task.priority)}</td><td>${formatDate(task.dueDate)}</td><td>${isTaskOverdue(task) ? 'Yes' : 'No'}</td><td>${escapeHtml(task.description)}</td></tr>`;
+  }).join('');
+  return `<table><thead><tr><th>Task</th><th>Assignee</th><th>Status</th><th>Priority</th><th>Due Date</th><th>Overdue</th><th>Description</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function downloadTextFile(filename, type, content) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function getInitials(name) {
